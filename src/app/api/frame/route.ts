@@ -103,6 +103,68 @@ export async function POST(req: NextRequest): Promise<Response> {
         });
       }
 
+      case "✅ Complete": {
+        const todoId = message.state?.selectedTodo;
+
+        // Complete the todo
+        await supabase
+          .from("todos")
+          .update({
+            completed: true,
+            completed_at: new Date().toISOString(),
+          })
+          .eq("id", todoId)
+          .eq("user_fid", fid);
+
+        // Get user's wallet address
+        const { data: user } = await supabase
+          .from("users")
+          .select("wallet_address")
+          .eq("fid", fid)
+          .single();
+
+        // Award points if user has connected wallet
+        if (user?.wallet_address) {
+          try {
+            // Call our points contract
+            await fetch("/api/points/award", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                address: user.wallet_address,
+                todoId,
+              }),
+            });
+          } catch (error) {
+            console.error("Error awarding points:", error);
+            // Continue even if points fail
+          }
+        }
+
+        // Get current streak
+        const { data: streakData } = await supabase
+          .from("users")
+          .select("streak_count")
+          .eq("fid", fid)
+          .single();
+
+        const streak = streakData?.streak_count || 0;
+
+        return NextResponse.json({
+          frames: [
+            {
+              version: "vNext",
+              image: `${process.env.NEXT_PUBLIC_HOST}/api/images/frame?fid=${fid}&completed=true&streak=${streak}`,
+              buttons: [
+                { label: "📋 My List" },
+                { label: "+ New" },
+                { label: `🏆 ${streak} Day Streak` },
+              ],
+            },
+          ],
+        });
+      }
+
       default:
         return NextResponse.json({
           frames: [
